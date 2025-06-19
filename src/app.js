@@ -12,6 +12,7 @@ const transaccionRoutes = require('./routes/transaccion.routes');
 const usuarioRoutes = require('./routes/usuario.routes');
 const auditoriaRoutes = require('./routes/auditoria.routes');
 const rolRoutes = require('./routes/rol.routes');
+const dashboardRoutes = require('./routes/dashboard.routes');
 
 // Crea la instancia de Express
 const app = express();
@@ -32,5 +33,6 @@ app.use('/api/transacciones', transaccionRoutes);
 app.use('/api/usuarios', usuarioRoutes);
 app.use('/api/auditoria', auditoriaRoutes);
 app.use('/api/roles', rolRoutes);
+app.use('/api/dashboard', dashboardRoutes);
 
 module.exports = app;
