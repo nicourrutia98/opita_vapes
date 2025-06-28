@@ -1,12 +1,42 @@
 const express = require('express');
-const router = express.Router();
 const productoController = require('../controllers/producto.controller');
-const authenticateToken = require('../middlewares/auth.middleware');
+const authMiddleware = require('../middlewares/auth.middleware');
+const authorizeRoles = require('../middlewares/authorizeRoles.middleware');
 
-router.post('/', authenticateToken, productoController.crearProducto);
-router.get('/', authenticateToken, productoController.obtenerProductos);
-router.get('/:id', authenticateToken, productoController.obtenerProductoPorId);
-router.put('/:id', authenticateToken, productoController.actualizarProducto);
-router.delete('/:id', authenticateToken, productoController.eliminarProducto);
+const router = express.Router();
+
+// MIDDLEWARE DE AUTENTICACIÓN GLOBAL
+router.use(authMiddleware);
+
+// RUTAS PÚBLICAS
+router.get('/', productoController.obtenerProductos);
+router.get('/:id', productoController.obtenerProductoPorId);
+
+// RUTAS DE GESTIÓN DE SABORES
+router.post('/:id/sabores', 
+  authorizeRoles(['admin', 'super_admin']), 
+  productoController.agregarSabor
+);
+
+router.put('/:id/sabores/:saborId', 
+  authorizeRoles(['admin', 'super_admin']), 
+  productoController.actualizarSabor
+);
+
+// RUTAS DE ADMINISTRACIÓN
+router.post('/', 
+  authorizeRoles(['admin', 'super_admin']), 
+  productoController.crearProducto
+);
+
+router.put('/:id', 
+  authorizeRoles(['admin', 'super_admin']), 
+  productoController.actualizarProducto
+);
+
+router.delete('/:id', 
+  authorizeRoles(['admin', 'super_admin']), 
+  productoController.eliminarProducto
+);
 
 module.exports = router;

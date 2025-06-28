@@ -11,13 +11,13 @@ router.use(authMiddleware);
 // Rutas del dashboard
 router.get(
   '/', 
-  authorizeRoles(['super_admin', 'admin', 'contador']), 
+  authorizeRoles('super_admin', 'admin', 'contador'), 
   dashboardController.getDashboardData
 );
 
 router.get(
   '/summary', 
-  authorizeRoles(['super_admin', 'admin', 'contador', 'vendedor']), 
+  authorizeRoles('super_admin', 'admin', 'contador', 'vendedor'), 
   dashboardController.getDashboardSummary
 );
 
