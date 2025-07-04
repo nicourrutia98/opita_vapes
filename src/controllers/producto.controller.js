@@ -4,29 +4,26 @@ class ProductoController {
   // CREAR PRODUCTO (CON LÓGICA DE AGRUPACIÓN Y SUMA DE STOCK)
   async crearProducto(req, res) {
     try {
-      if (!req.body.marca || !req.body.modelo || !req.body.saborData) {
+      // Validación actualizada: ahora espera array "sabores"
+      if (!req.body.marca || !req.body.modelo || !req.body.sabores || req.body.sabores.length === 0) {
         return res.status(400).json({
           success: false,
-          message: 'Marca, modelo y datos de sabor son requeridos'
+          message: 'Marca, modelo y al menos un sabor son requeridos'
         });
       }
-      const usuarioId = req.user.id;
+      const usuarioId = req.user.uid; // Cambiado de .id a .uid
       const producto = await productoService.crearProducto(req.body, usuarioId);
-      
-      // Mensaje dinámico basado en si se creó un producto nuevo o se añadió a uno existente
-      const mensaje = producto.sabores.length > 1 
-        ? 'Sabor añadido al producto existente' 
-        : 'Producto creado con el primer sabor';
-      
+
       res.status(201).json({
         success: true,
-        message: mensaje,
+        message: 'Producto creado exitosamente',
         data: producto
       });
     } catch (error) {
       res.status(400).json({
         success: false,
-        message: error.message
+        message: error.message,
+        errors: error.errors
       });
     }
   }
@@ -35,21 +32,21 @@ class ProductoController {
   async agregarSabor(req, res) {
     try {
       const { id: productoId } = req.params;
-      const usuarioId = req.user.id;
+      const usuarioId = req.user.uid; // Cambiado de .id a .uid
       const saborData = req.body;
-      
+
       const productoActualizado = await productoService.agregarSabor(
-        productoId, 
-        saborData, 
+        productoId,
+        saborData,
         usuarioId
       );
-      
+
       // Determinar si se sumó stock o se añadió un nuevo sabor
       const saborExistente = productoActualizado.sabores.find(s => s.nombre === saborData.nombre);
       const mensaje = saborExistente && saborExistente.stock > saborData.stock
         ? 'Stock actualizado en sabor existente'
         : 'Nuevo sabor agregado';
-      
+
       res.status(200).json({
         success: true,
         message: mensaje,
@@ -103,23 +100,23 @@ class ProductoController {
   async actualizarSabor(req, res) {
     try {
       const { id: productoId, saborId } = req.params;
-      const usuarioId = req.user.id;
-      
+      const usuarioId = req.user.uid; // Cambiado de .id a .uid
+
       const producto = await productoService.obtenerProductoPorId(productoId);
-      
+
       const nuevosSabores = producto.sabores.map(sabor => {
         if (sabor.id === saborId) {
           return { ...sabor, ...req.body };
         }
         return sabor;
       });
-      
+
       const productoActualizado = await productoService.actualizarProducto(
         productoId,
         { sabores: nuevosSabores },
         usuarioId
       );
-      
+
       res.status(200).json({
         success: true,
         message: 'Sabor actualizado',
@@ -137,18 +134,18 @@ class ProductoController {
   async actualizarProducto(req, res) {
     try {
       const { id } = req.params;
-      const usuarioId = req.user.id;
-      
-      if (req.body.sabores || req.body.saborData) {
+      const usuarioId = req.user.uid; // Cambiado de .id a .uid
+
+      if (req.body.sabores) {
         throw new Error('Use el endpoint específico para actualizar sabores');
       }
-      
+
       const producto = await productoService.actualizarProducto(
-        id, 
-        req.body, 
+        id,
+        req.body,
         usuarioId
       );
-      
+
       res.status(200).json({
         success: true,
         message: 'Producto actualizado',
@@ -167,10 +164,10 @@ class ProductoController {
   async eliminarProducto(req, res) {
     try {
       const { id } = req.params;
-      const usuarioId = req.user.id;
-      
+      const usuarioId = req.user.uid; // Cambiado de .id a .uid
+
       const resultado = await productoService.eliminarProducto(id, usuarioId);
-      
+
       res.status(200).json({
         success: true,
         message: resultado.mensaje

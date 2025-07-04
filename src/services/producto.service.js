@@ -7,34 +7,58 @@ class ProductoService {
     this.collection = 'productos';
   }
 
-  // CREAR/ACTUALIZAR PRODUCTO CON LÓGICA DE AGRUPACIÓN Y SUMA DE STOCK
+  // ---------- MÉTODOS DE AUDITORÍA ----------
+  _setAuditoriaCreacion(obj, usuarioId) {
+    return {
+      ...obj,
+      usuarioCreacion: usuarioId,
+      usuarioActualizacion: usuarioId,
+      fechaCreacion: admin.firestore.FieldValue.serverTimestamp(),
+      fechaActualizacion: admin.firestore.FieldValue.serverTimestamp(),
+      activo: true
+    };
+  }
+
+  _setAuditoriaActualizacion(obj, usuarioId) {
+    return {
+      ...obj,
+      usuarioActualizacion: usuarioId,
+      fechaActualizacion: admin.firestore.FieldValue.serverTimestamp()
+    };
+  }
+
+  // ---------- CREAR O ACTUALIZAR PRODUCTO ----------
   async crearProducto(datosProducto, usuarioId) {
     try {
       if (!datosProducto.marca || !datosProducto.modelo) {
         throw new Error('Marca y modelo son requeridos');
       }
 
-      // Buscar producto existente por marca y modelo
+      if (!Array.isArray(datosProducto.sabores) || datosProducto.sabores.length === 0) {
+        throw new Error('Debe incluir al menos un sabor');
+      }
+
+      const primerSabor = datosProducto.sabores[0];
+      const nombreSaborNuevo = primerSabor.sabor;
+      const stockASumar = primerSabor.stock || 0;
+
       const query = this.db.collection(this.collection)
         .where('marca', '==', datosProducto.marca)
         .where('modelo', '==', datosProducto.modelo)
+        .where('activo', '==', true)  // ¡Filtro CRUCIAL!
         .limit(1);
 
       const snapshot = await query.get();
 
       if (!snapshot.empty) {
-        // Producto existe: revisar si el sabor ya existe
         const doc = snapshot.docs[0];
         const productoExistente = Producto.fromFirestore(doc);
+        const nombreSaborNuevo = primerSabor.sabor;
 
-        // Buscar sabor por nombre (puedes cambiar a ID si lo prefieres)
-        const nombreSaborNuevo = datosProducto.saborData.nombre;
-        const stockASumar = datosProducto.saborData.stock || 0;
         let saborYaExiste = false;
 
         const nuevosSabores = productoExistente.sabores.map(sabor => {
           if (sabor.nombre === nombreSaborNuevo) {
-            saborYaExiste = true;
             return {
               ...sabor,
               stock: (sabor.stock || 0) + stockASumar
@@ -43,41 +67,32 @@ class ProductoService {
           return sabor;
         });
 
-        if (saborYaExiste) {
-          // Sumar stock al sabor existente
-          const updateData = {
-            sabores: nuevosSabores,
-            usuarioActualizacion: usuarioId,
-            fechaActualizacion: admin.firestore.FieldValue.serverTimestamp()
-          };
-          await this.db.collection(this.collection).doc(doc.id).update(updateData);
-          return await this.obtenerProductoPorId(doc.id);
-        } else {
-          // Agregar nuevo sabor
-          const nuevoSabor = {
-            ...datosProducto.saborData,
-            id: Date.now().toString()
-          };
-          const updateData = {
-            sabores: [...productoExistente.sabores, nuevoSabor],
-            usuarioActualizacion: usuarioId,
-            fechaActualizacion: admin.firestore.FieldValue.serverTimestamp()
-          };
-          await this.db.collection(this.collection).doc(doc.id).update(updateData);
-          return await this.obtenerProductoPorId(doc.id);
-        }
+        const saboresFinales = saborYaExiste
+          ? nuevosSabores
+          : [
+              ...productoExistente.sabores, 
+              {
+                nombre: nombreSaborNuevo, // Campo CORRECTO
+                stock: stockASumar,
+                emoji: primerSabor.emoji,
+                id: Date.now().toString()
+              }
+            ];
+
+        const updateData = this._setAuditoriaActualizacion({ sabores: saboresFinales }, usuarioId);
+        await this.db.collection(this.collection).doc(doc.id).update(updateData);
+
+        return await this.obtenerProductoPorId(doc.id);
       } else {
-        // Producto no existe: crear nuevo producto con el sabor
+        const nuevosSabores = datosProducto.sabores.map(s => ({
+          nombre: s.sabor,
+          stock: s.stock,
+          emoji: s.emoji,
+          id: Date.now().toString()
+        }));
         const nuevoProducto = new Producto({
           ...datosProducto,
-          sabores: [{
-            ...datosProducto.saborData,
-            id: Date.now().toString()
-          }],
-          usuarioCreacion: usuarioId,
-          usuarioActualizacion: usuarioId,
-          fechaCreacion: admin.firestore.FieldValue.serverTimestamp(),
-          fechaActualizacion: admin.firestore.FieldValue.serverTimestamp()
+          sabores: nuevosSabores
         });
 
         const errores = nuevoProducto.validate();
@@ -85,9 +100,8 @@ class ProductoService {
           throw new Error(`Errores de validación: ${errores.join(', ')}`);
         }
 
-        const docRef = await this.db.collection(this.collection).add(
-          nuevoProducto.toFirestore()
-        );
+        const datosConAuditoria = this._setAuditoriaCreacion(nuevoProducto.toFirestore(), usuarioId);
+        const docRef = await this.db.collection(this.collection).add(datosConAuditoria);
         const docSnapshot = await docRef.get();
         return Producto.fromFirestore(docSnapshot);
       }
@@ -96,7 +110,7 @@ class ProductoService {
     }
   }
 
-  // AGREGAR SABOR (con suma de stock si existe)
+  // ---------- AGREGAR SABOR A PRODUCTO EXISTENTE ----------
   async agregarSabor(productoId, saborData, usuarioId) {
     try {
       const producto = await this.obtenerProductoPorId(productoId);
@@ -115,24 +129,12 @@ class ProductoService {
         return sabor;
       });
 
-      let saboresFinales;
-      if (saborYaExiste) {
-        saboresFinales = nuevosSabores;
-      } else {
-        saboresFinales = [
-          ...producto.sabores,
-          {
-            ...saborData,
-            id: Date.now().toString()
-          }
-        ];
-      }
+      const saboresFinales = saborYaExiste
+        ? nuevosSabores
+        : [...producto.sabores, { ...saborData, id: Date.now().toString() }];
 
-      await this.db.collection(this.collection).doc(productoId).update({
-        sabores: saboresFinales,
-        usuarioActualizacion: usuarioId,
-        fechaActualizacion: admin.firestore.FieldValue.serverTimestamp()
-      });
+      const updateData = this._setAuditoriaActualizacion({ sabores: saboresFinales }, usuarioId);
+      await this.db.collection(this.collection).doc(productoId).update(updateData);
 
       return await this.obtenerProductoPorId(productoId);
     } catch (error) {
@@ -140,7 +142,7 @@ class ProductoService {
     }
   }
 
-  // OBTENER PRODUCTOS (CON FILTROS)
+  // ---------- OBTENER TODOS LOS PRODUCTOS ----------
   async obtenerProductos(filtros = {}) {
     try {
       let query = this.db.collection(this.collection).where('activo', '==', true);
@@ -155,25 +157,7 @@ class ProductoService {
     }
   }
 
-  // ACTUALIZAR PRODUCTO
-  async actualizarProducto(id, datosActualizacion, usuarioId) {
-    try {
-      await this.obtenerProductoPorId(id);
-
-      const updateData = {
-        ...datosActualizacion,
-        usuarioActualizacion: usuarioId,
-        fechaActualizacion: admin.firestore.FieldValue.serverTimestamp()
-      };
-
-      await this.db.collection(this.collection).doc(id).update(updateData);
-      return await this.obtenerProductoPorId(id);
-    } catch (error) {
-      throw new Error(`Error al actualizar producto: ${error.message}`);
-    }
-  }
-
-  // OBTENER PRODUCTO POR ID
+  // ---------- OBTENER POR ID ----------
   async obtenerProductoPorId(id) {
     try {
       const doc = await this.db.collection(this.collection).doc(id).get();
@@ -184,14 +168,25 @@ class ProductoService {
     }
   }
 
-  // ELIMINACIÓN LÓGICA
+  // ---------- ACTUALIZAR PRODUCTO ----------
+  async actualizarProducto(id, datosActualizacion, usuarioId) {
+    try {
+      await this.obtenerProductoPorId(id);
+
+      const updateData = this._setAuditoriaActualizacion(datosActualizacion, usuarioId);
+      await this.db.collection(this.collection).doc(id).update(updateData);
+
+      return await this.obtenerProductoPorId(id);
+    } catch (error) {
+      throw new Error(`Error al actualizar producto: ${error.message}`);
+    }
+  }
+
+  // ---------- ELIMINACIÓN LÓGICA ----------
   async eliminarProducto(id, usuarioId) {
     try {
-      await this.db.collection(this.collection).doc(id).update({
-        activo: false,
-        usuarioActualizacion: usuarioId,
-        fechaActualizacion: admin.firestore.FieldValue.serverTimestamp()
-      });
+      const updateData = this._setAuditoriaActualizacion({ activo: false }, usuarioId);
+      await this.db.collection(this.collection).doc(id).update(updateData);
       return { mensaje: 'Producto eliminado correctamente' };
     } catch (error) {
       throw new Error(`Error al eliminar producto: ${error.message}`);

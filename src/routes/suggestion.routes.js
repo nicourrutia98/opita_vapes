@@ -3,10 +3,9 @@ const router = express.Router();
 const suggestionController = require('../controllers/suggestion.controller');
 const authMiddleware = require('../middlewares/auth.middleware');
 
-// Autenticación global para sugerencias
 router.use(authMiddleware);
 
-// Obtener sugerencias por campo
+// Obtener sugerencias por campo con parámetro de búsqueda
 router.get('/:field', suggestionController.getSuggestions);
 
 // Obtener productos recientes
